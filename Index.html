@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="RCM"/>
+  <meta name="theme-color" content="#0d1117"/>
+  <title>RCM – Finanças</title>
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230d1117'/%3E%3Ctext y='.9em' font-size='75' x='10'%3E💰%3C/text%3E%3C/svg%3E"/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#0d1117}
+    body{
+      font-family:-apple-system,'Segoe UI',system-ui,sans-serif;
+      color:#fff;min-height:100vh;
+      padding-bottom:env(safe-area-inset-bottom);
+    }
+    #app{
+      min-height:100vh;
+      background:linear-gradient(160deg,#0d1117 0%,#161b27 50%,#0d1117 100%);
+      padding-bottom:100px;
+    }
+    textarea,input,button{font-family:inherit}
+    textarea::placeholder{color:rgba(255,255,255,0.25)}
+    input::placeholder{color:rgba(255,255,255,0.3)}
+    input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+    @keyframes fadeIn{
+      from{opacity:0;transform:translateX(-50%) translateY(-8px)}
+      to{opacity:1;transform:translateX(-50%) translateY(0)}
+    }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ─── Storage ──────────────────────────────────────────────────────────────────
+const store = {
+  get:(k)=>{try{return JSON.parse(localStorage.getItem(k))}catch{return null}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}},
+};
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+const CATEGORIES = {
+“Restaurantes”:{emoji:“🍽️”,color:”#FF6B6B”,bg:”#fff0f0”,hint:“refeições fora, delivery, café”},
+“Mercado”:     {emoji:“🛒”,color:”#10B981”,bg:”#f0fdf4”,hint:“supermercado, hortifruti, feira”},
+“Compras”:     {emoji:“🛍️”,color:”#EC4899”,bg:”#fdf2f8”,hint:“roupa, eletrônico, cosmético, presente”},
+};
+
+const DEFAULT_BUDGETS = {Restaurantes:3000, Mercado:4000, Compras:500};
+
+// ─── Seed data (março 2026) ───────────────────────────────────────────────────
+const SEED_TXS = [
+{id:1, amount:3215.81, category:“Mercado”,      description:“Mercado (saldo inicial)”,      date:“01/03/2026”, mk:“2026-03”},
+{id:2, amount:1968.27, category:“Restaurantes”, description:“Restaurantes (saldo inicial)”, date:“01/03/2026”, mk:“2026-03”},
+{id:3, amount:1000.00, category:“Compras”,      description:“Compras (saldo inicial)”,      date:“01/03/2026”, mk:“2026-03”},
+];
+
+// ─── State ────────────────────────────────────────────────────────────────────
+function loadTxs() {
+const saved = store.get(“rcm-txs”) || [];
+const hasMarch = saved.some(x => x.mk === “2026-03”);
+return hasMarch ? saved : […SEED_TXS, …saved.filter(x => x.mk !== “2026-03”)];
+}
+
+let state = {
+txs: loadTxs(),
+budgets: Object.assign({}, DEFAULT_BUDGETS, store.get(“rcm-budgets”) || {}),
+tab: “home”,
+editCat: null,
+editVal: “”,
+error: “”,
+toast: null,
+};
+
+function save() {
+store.set(“rcm-txs”, state.txs);
+store.set(“rcm-budgets”, state.budgets);
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function fmt(v){
+return new Intl.NumberFormat(“pt-BR”,{style:“currency”,currency:“BRL”}).format(v);
+}
+function monthKey(d=new Date()){
+return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
+function monthLabel(d=new Date()){
+return d.toLocaleDateString(“pt-BR”,{month:“long”,year:“numeric”});
+}
+
+// ─── Local parser ─────────────────────────────────────────────────────────────
+function parseInput(text) {
+const t = text.toLowerCase().trim();
+const numMatch = t.match(/\d+([.,]\d+)?/);
+const amount = numMatch ? parseFloat(numMatch[0].replace(”,”,”.”)) : 0;
+const desc = text.replace(/\d+([.,]\d+)?/,””).trim() || text;
+
+// Letra única: m, r, c
+let cat = null;
+for (const w of t.split(/\s+/)) {
+if (w===“m”){cat=“Mercado”;break}
+if (w===“r”){cat=“Restaurantes”;break}
+if (w===“c”){cat=“Compras”;break}
+}
+
+// Fallback por palavras-chave
+if (!cat) {
+const R=[“restaurante”,“almoço”,“almoco”,“jantar”,“café”,“cafe”,“lanchonete”,“bar”,“pizza”,“ifood”,“delivery”,“hamburguer”,“sushi”,“lanche”,“pastel”,“churrasco”,“boteco”,“pao”,“pão”,“refeição”,“refeicao”,“marmita”,“açaí”,“acai”,“sorvete”,“crepe”,“tapioca”,“espeto”,“padaria”];
+const M=[“mercado”,“supermercado”,“feira”,“hortifruti”,“açougue”,“acougue”,“walmart”,“carrefour”,“extra”,“atacadao”,“atacadão”,“quitanda”,“verdura”,“fruta”,“leite”,“carne”,“legume”,“mantimento”];
+const C=[“loja”,“roupa”,“sapato”,“tenis”,“tênis”,“nike”,“adidas”,“zara”,“renner”,“riachuelo”,“farm”,“arezzo”,“farmacia”,“farmácia”,“drogaria”,“cosmetico”,“cosmético”,“perfume”,“presente”,“shopping”,“amazon”,“magalu”,“americanas”,“shein”,“shopee”,“maquiagem”,“bolsa”,“mochila”,“camiseta”,“vestido”,“jaqueta”,“óculos”,“oculos”,“livro”,“papelaria”,“eletrônico”,“eletronico”];
+cat=“Compras”;
+for(const w of R){if(t.includes(w)){cat=“Restaurantes”;break}}
+if(cat===“Compras”){for(const w of M){if(t.includes(w)){cat=“Mercado”;break}}}
+}
+
+const descClean = desc.replace(/\b[mrc]\b/gi,””).trim().slice(0,30) || cat;
+return {
+amount,
+category: cat,
+description: descClean.charAt(0).toUpperCase()+descClean.slice(1),
+};
+}
+
+// ─── Actions ──────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg,ok=true){
+state.toast={msg,ok};render();
+clearTimeout(toastTimer);
+toastTimer=setTimeout(()=>{state.toast=null;render();},2500);
+}
+
+function addTx(){
+const input=document.getElementById(“txInput”).value.trim();
+if(!input) return;
+state.error=””;
+try {
+const parsed=parseInput(input);
+if(!parsed.amount){state.error=“Não encontrei o valor. Ex: 50 m · 120 r · 200 c”;render();return;}
+const now=new Date();
+state.txs.unshift({
+id:Date.now(),
+amount:parsed.amount,
+category:parsed.category,
+description:parsed.description,
+date:now.toLocaleDateString(“pt-BR”),
+mk:monthKey(now),
+});
+save();
+document.getElementById(“txInput”).value=””;
+showToast(`${CATEGORIES[parsed.category].emoji} ${parsed.description} → ${parsed.category}`);
+} catch(e){
+state.error=“Erro ao processar. Tente: 50 m”;
+render();
+}
+}
+
+function removeTx(id){
+state.txs=state.txs.filter(t=>t.id!==id);
+save();
+showToast(“Removido”,false);
+}
+
+function saveBudget(){
+const v=parseFloat(state.editVal.replace(”,”,”.”));
+if(!isNaN(v)&&v>=0){
+state.budgets[state.editCat]=v;
+state.editCat=null;state.editVal=””;
+save();showToast(“Limite atualizado ✓”);
+}
+}
+
+function setTab(t){state.tab=t;state.editCat=null;render();}
+function toggleEdit(cat){
+state.editCat=state.editCat===cat?null:cat;
+state.editVal=String(state.budgets[cat]);
+render();
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render(){
+const mk=monthKey();
+const monthTxs=state.txs.filter(t=>t.mk===mk);
+const spent=Object.keys(CATEGORIES).reduce((acc,c)=>{
+acc[c]=monthTxs.filter(t=>t.category===c).reduce((s,t)=>s+t.amount,0);
+return acc;
+},{});
+const totalSpent=Object.values(spent).reduce((a,b)=>a+b,0);
+const totalBudget=Object.values(state.budgets).reduce((a,b)=>a+b,0);
+const pct=(cat)=>state.budgets[cat]>0?Math.min((spent[cat]/state.budgets[cat])*100,100):0;
+const rem=(cat)=>Math.max(state.budgets[cat]-spent[cat],0);
+const over=(cat)=>spent[cat]>state.budgets[cat];
+const barColor=(cat)=>{const p=pct(cat);if(over(cat))return”#EF4444”;if(p>80)return”#F59E0B”;return CATEGORIES[cat].color;};
+
+document.getElementById(“app”).innerHTML=`
+
+```
+${state.toast?`
+<div style="position:fixed;top:16px;left:50%;transform:translateX(-50%);
+  background:${state.toast.ok?"#10B981":"#6B7280"};color:#fff;
+  padding:10px 22px;border-radius:24px;font-weight:600;font-size:14px;
+  z-index:999;box-shadow:0 4px 24px rgba(0,0,0,0.4);
+  animation:fadeIn 0.2s ease;white-space:nowrap;">${state.toast.msg}</div>`:""}
+
+<!-- Header -->
+<div style="padding:max(36px,env(safe-area-inset-top)) 24px 20px;text-align:center;">
+  <div style="display:inline-block;background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.1);border-radius:99px;padding:4px 16px;
+    font-size:12px;letter-spacing:3px;text-transform:uppercase;
+    color:rgba(255,255,255,0.5);margin-bottom:12px;">
+    R·C·M · ${monthLabel()}
+  </div>
+  <div style="font-size:48px;font-weight:900;letter-spacing:-2px;line-height:1;">${fmt(totalSpent)}</div>
+  <div style="font-size:14px;color:rgba(255,255,255,0.4);margin-top:4px;">limite total: ${fmt(totalBudget)}</div>
+  <div style="margin:18px auto 0;max-width:320px;">
+    <div style="height:8px;background:rgba(255,255,255,0.1);border-radius:99px;overflow:hidden;display:flex;">
+      ${Object.keys(CATEGORIES).map(cat=>`
+        <div style="height:100%;width:${(spent[cat]/totalBudget)*100}%;
+          background:${CATEGORIES[cat].color};transition:width 0.6s;"></div>`).join("")}
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;">
+      ${Object.entries(CATEGORIES).map(([cat,meta])=>`
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.45);">
+          <div style="width:8px;height:8px;border-radius:2px;background:${meta.color};flex-shrink:0;"></div>${cat}
+        </div>`).join("")}
+    </div>
+  </div>
+  <div style="font-size:13px;margin-top:10px;color:${totalSpent>totalBudget?"#FCA5A5":"rgba(255,255,255,0.4)"};">
+    ${totalSpent>totalBudget
+      ?`⚠️ ${fmt(totalSpent-totalBudget)} acima do limite`
+      :`✅ Restam ${fmt(totalBudget-totalSpent)} no total`}
+  </div>
+</div>
+
+<!-- Input -->
+<div style="padding:0 16px 24px;">
+  <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);
+    border-radius:18px;padding:14px 16px;display:flex;gap:10px;align-items:flex-end;
+    box-shadow:0 2px 20px rgba(0,0,0,0.3);">
+    <textarea id="txInput" rows="2"
+      placeholder="50 m · 120 r · 200 c  (m=Mercado, r=Restaurante, c=Compras)"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addTx();}"
+      style="flex:1;background:none;border:none;outline:none;color:#fff;
+        font-size:15px;resize:none;line-height:1.5;"></textarea>
+    <button onclick="addTx()" style="
+      background:linear-gradient(135deg,#EC4899,#8B5CF6);
+      border:none;border-radius:12px;padding:10px 20px;color:#fff;
+      font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+      box-shadow:0 4px 16px rgba(236,72,153,0.3);">Lançar</button>
+  </div>
+  ${state.error?`<div style="color:#FCA5A5;font-size:13px;margin-top:8px;padding:0 4px;">${state.error}</div>`:""}
+</div>
+
+<!-- Tabs -->
+<div style="display:flex;gap:8px;padding:0 16px 20px;">
+  ${[["home","📊 RCM"],["history","📋 Histórico"],["budgets","🎯 Limites"]].map(([t,label])=>`
+    <button onclick="setTab('${t}')" style="flex:1;padding:10px 0;
+      background:${state.tab===t?"rgba(139,92,246,0.7)":"rgba(255,255,255,0.05)"};
+      border:1px solid ${state.tab===t?"rgba(139,92,246,0.9)":"rgba(255,255,255,0.08)"};
+      border-radius:12px;color:#fff;font-weight:${state.tab===t?700:400};
+      font-size:13px;cursor:pointer;">${label}</button>`).join("")}
+</div>
+
+<!-- RESUMO -->
+${state.tab==="home"?`
+<div style="padding:0 16px;display:flex;flex-direction:column;gap:14px;">
+  ${Object.entries(CATEGORIES).map(([cat,meta])=>{
+    const p=pct(cat),isOver=over(cat),r=rem(cat);
+    return`<div style="background:rgba(255,255,255,0.05);
+      border:1px solid ${isOver?"rgba(239,68,68,0.4)":"rgba(255,255,255,0.08)"};
+      border-radius:20px;padding:18px 20px;
+      box-shadow:${isOver?"0 0 20px rgba(239,68,68,0.1)":"none"};">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="font-size:26px;background:${meta.bg};border-radius:14px;width:48px;height:48px;
+            display:flex;align-items:center;justify-content:center;
+            box-shadow:0 4px 12px ${meta.color}33;">${meta.emoji}</div>
+          <div>
+            <div style="font-weight:800;font-size:17px;">${cat}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:2px;">${meta.hint}</div>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:900;font-size:20px;color:${isOver?"#FCA5A5":"#fff"};">${fmt(spent[cat])}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.4);">de ${fmt(state.budgets[cat])}</div>
+        </div>
+      </div>
+      <div style="height:7px;background:rgba(255,255,255,0.08);border-radius:99px;">
+        <div style="height:100%;border-radius:99px;width:${p}%;background:${barColor(cat)};
+          transition:width 0.6s;box-shadow:0 0 8px ${barColor(cat)}88;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:13px;">
+        <span style="color:rgba(255,255,255,0.4);">${Math.round(p)}% usado</span>
+        <span style="font-weight:700;color:${isOver?"#FCA5A5":p>80?"#FCD34D":"#6EE7B7"};">
+          ${isOver?`⚠️ ${fmt(spent[cat]-state.budgets[cat])} acima`:`✅ Faltam ${fmt(r)}`}
+        </span>
+      </div>
+    </div>`;}).join("")}
+</div>`:""}
+
+<!-- HISTÓRICO -->
+${state.tab==="history"?`
+<div style="padding:0 16px;display:flex;flex-direction:column;gap:8px;">
+  ${monthTxs.length===0
+    ?`<div style="text-align:center;color:rgba(255,255,255,0.3);margin-top:48px;font-size:15px;">Nenhum lançamento este mês 🙂</div>`
+    :monthTxs.map(tx=>{
+      const meta=CATEGORIES[tx.category]||CATEGORIES["Compras"];
+      return`<div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.07);
+        border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:12px;">
+        <span style="font-size:20px;background:${meta.bg};border-radius:10px;width:38px;height:38px;
+          display:flex;align-items:center;justify-content:center;flex-shrink:0;">${meta.emoji}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${tx.description}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:2px;">${tx.category} · ${tx.date}</div>
+        </div>
+        <div style="font-weight:800;font-size:16px;color:${meta.color};flex-shrink:0;">${fmt(tx.amount)}</div>
+        <button onclick="removeTx(${tx.id})" style="background:rgba(239,68,68,0.12);
+          border:1px solid rgba(239,68,68,0.25);border-radius:8px;color:#FCA5A5;
+          font-size:12px;cursor:pointer;padding:4px 9px;flex-shrink:0;">✕</button>
+      </div>`;}).join("")}
+</div>`:""}
+
+<!-- LIMITES -->
+${state.tab==="budgets"?`
+<div style="padding:0 16px;display:flex;flex-direction:column;gap:10px;">
+  <div style="font-size:13px;color:rgba(255,255,255,0.4);text-align:center;margin-bottom:4px;">
+    Toque numa categoria para editar o limite mensal
+  </div>
+  ${Object.entries(CATEGORIES).map(([cat,meta])=>`
+    <div>
+      <div onclick="toggleEdit('${cat}')" style="
+        background:${state.editCat===cat?"rgba(139,92,246,0.15)":"rgba(255,255,255,0.05)"};
+        border:1px solid ${state.editCat===cat?"rgba(139,92,246,0.5)":"rgba(255,255,255,0.08)"};
+        border-radius:${state.editCat===cat?"16px 16px 0 0":"16px"};
+        padding:16px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:20px;background:${meta.bg};border-radius:10px;width:36px;height:36px;
+            display:flex;align-items:center;justify-content:center;">${meta.emoji}</span>
+          <div>
+            <div style="font-weight:700;font-size:15px;">${cat}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.4);">gasto: ${fmt(spent[cat])}</div>
+          </div>
+        </div>
+        <div style="font-weight:800;font-size:17px;">${fmt(state.budgets[cat])}</div>
+      </div>
+      ${state.editCat===cat?`
+      <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.4);
+        border-top:none;border-radius:0 0 16px 16px;padding:12px 18px;display:flex;gap:10px;">
+        <input type="number" id="budgetInput" value="${state.editVal}"
+          oninput="state.editVal=this.value"
+          onkeydown="if(event.key==='Enter')saveBudget();"
+          placeholder="Novo limite"
+          style="flex:1;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);
+            border-radius:10px;color:#fff;font-size:15px;padding:8px 14px;outline:none;"/>
+        <button onclick="saveBudget()" style="background:linear-gradient(135deg,#EC4899,#8B5CF6);
+          border:none;border-radius:10px;color:#fff;font-weight:700;font-size:14px;
+          padding:8px 20px;cursor:pointer;">Salvar</button>
+      </div>`:""}
+    </div>`).join("")}
+</div>`:""}
+```
+
+`;
+
+if(state.editCat&&state.tab===“budgets”){
+const bi=document.getElementById(“budgetInput”);
+if(bi)bi.focus();
+}
+}
+
+render();
+</script>
+
+</body>
+</html>
